@@ -1,6 +1,6 @@
 # LLM.md - github.com/hanzoai/rollout
 
-Shared rollout primitive used by `~/work/hanzo/operator` and a downstream operator.
+Shared rollout primitive used by `~/work/hanzo/operator` and downstream operator forks.
 
 ## What
 
@@ -11,9 +11,9 @@ desired vs running images, and rolls services forward via `kubectl set image`
 
 ## Why standalone
 
-Both `hanzo-operator` and `downstream-operator` (Go binary side) ship a CLI
-subcommand that drives identical logic. Keeping the source duplicated invited
-drift; a single module that both import is the simpler shape.
+Multiple operators ship a CLI subcommand that drives identical logic.
+Keeping the source duplicated invited drift; a single module that they all
+import is the simpler shape.
 
 ## Public API
 
@@ -55,5 +55,4 @@ Files: `dev.yml`, `test.yml`, `main.yml` for devnet/testnet/mainnet.
 - `~/work/hanzo/operator` (Go) -- imports as
   `github.com/hanzoai/operator/internal/rollout` shim that re-exports
   `github.com/hanzoai/rollout`.
-- a downstream operator (Go binary at `cmd/rollout/`) -- same
-  pattern.
+- Downstream operator forks (Go binary at `cmd/rollout/`) -- same pattern.
