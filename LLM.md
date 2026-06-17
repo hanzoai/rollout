@@ -1,4 +1,4 @@
-# LLM.md - github.com/hanzoai/rollout
+# github.com/hanzoai/rollout
 
 Shared rollout primitive used by `~/work/hanzo/operator` and downstream operator forks.
 
