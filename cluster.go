@@ -118,9 +118,8 @@ func PortForward(ctx context.Context, kubeCtx, namespace, kind, name string, rem
 	for time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
 		out := stdout.String() + stderr.String()
-		if idx := strings.Index(out, "127.0.0.1:"); idx >= 0 {
+		if _, rest, ok := strings.Cut(out, "127.0.0.1:"); ok {
 			// Extract local port
-			rest := out[idx+len("127.0.0.1:"):]
 			end := strings.IndexAny(rest, " \n\t->")
 			if end < 0 {
 				end = len(rest)
