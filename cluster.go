@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -132,6 +133,9 @@ func PortForward(ctx context.Context, kubeCtx, namespace, kind, name string, rem
 					end = len(rest)
 				}
 				addrCh <- "http://127.0.0.1:" + rest[:end]
+				// Keep reading: kubectl logs every connection to stdout and
+				// stalls the forward once the pipe fills.
+				_, _ = io.Copy(io.Discard, stdout)
 				return
 			}
 		}
