@@ -29,9 +29,27 @@ type ServiceDiff struct {
 
 // Run executes the progressive rollout.
 func Run(ctx context.Context, cfg Config) error {
-	manifests, err := LoadAll(cfg.ManifestDir)
-	if err != nil {
-		return err
+	// Load only the manifests this run can touch: all three for a
+	// progressive rollout, just the target env for a single-env run.
+	// A single-env run must not fail because another env's manifest is
+	// missing or carries a bad tag.
+	manifests := make(map[Env]*Manifest, len(PromotionOrder))
+	if cfg.Env != "" {
+		e := Env(cfg.Env)
+		if envFile(e) == "" {
+			return fmt.Errorf("unknown env %q", cfg.Env)
+		}
+		m, err := LoadManifest(cfg.ManifestDir, e)
+		if err != nil {
+			return err
+		}
+		manifests[e] = m
+	} else {
+		all, err := LoadAll(cfg.ManifestDir)
+		if err != nil {
+			return err
+		}
+		manifests = all
 	}
 
 	// Validate all tags are semver
@@ -46,11 +64,7 @@ func Run(ctx context.Context, cfg Config) error {
 	// Determine which envs to process
 	envs := PromotionOrder
 	if cfg.Env != "" {
-		e := Env(cfg.Env)
-		if _, ok := manifests[e]; !ok {
-			return fmt.Errorf("unknown env %q", cfg.Env)
-		}
-		envs = []Env{e}
+		envs = []Env{Env(cfg.Env)}
 	}
 
 	for _, env := range envs {
