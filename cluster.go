@@ -1,6 +1,7 @@
 package rollout
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -96,16 +97,20 @@ func PortForward(ctx context.Context, kubeCtx, namespace, kind, name string, rem
 		}
 	}
 
-	// Use port 0 so kubectl picks a free local port
+	// ":PORT" leaves the local port empty, which kubectl maps to 0 — a free
+	// local port is picked and reported on the "Forwarding from" line.
 	cmd := exec.CommandContext(pfCtx, "kubectl",
 		"--context", kubeCtx,
 		"-n", namespace,
 		"port-forward", podName,
-		fmt.Sprintf("::%d", remotePort),
+		fmt.Sprintf(":%d", remotePort),
 	)
 	var stderr bytes.Buffer
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		pfCancel()
+		return "", nil, fmt.Errorf("port-forward pipe: %w", err)
+	}
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
@@ -113,27 +118,41 @@ func PortForward(ctx context.Context, kubeCtx, namespace, kind, name string, rem
 		return "", nil, fmt.Errorf("port-forward start: %w", err)
 	}
 
-	// Wait for the "Forwarding from 127.0.0.1:XXXXX -> YYYYY" line
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(200 * time.Millisecond)
-		out := stdout.String() + stderr.String()
-		if _, rest, ok := strings.Cut(out, "127.0.0.1:"); ok {
-			// Extract local port
-			end := strings.IndexAny(rest, " \n\t->")
-			if end < 0 {
-				end = len(rest)
+	// Wait for the "Forwarding from 127.0.0.1:XXXXX -> YYYYY" line. The pipe is
+	// scanned in its own goroutine; reading a bytes.Buffer while the exec pump
+	// writes it is a data race.
+	addrCh := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			if _, rest, ok := strings.Cut(scanner.Text(), "127.0.0.1:"); ok {
+				// Extract local port
+				end := strings.IndexAny(rest, " \n\t->")
+				if end < 0 {
+					end = len(rest)
+				}
+				addrCh <- "http://127.0.0.1:" + rest[:end]
+				return
 			}
-			localPort := rest[:end]
-			localAddr = "http://127.0.0.1:" + localPort
+		}
+		addrCh <- ""
+	}()
+
+	select {
+	case localAddr = <-addrCh:
+		if localAddr != "" {
 			return localAddr, func() {
 				pfCancel()
 				_ = cmd.Wait()
 			}, nil
 		}
+		// kubectl exited before forwarding anything (e.g. rejected spec).
+		_ = cmd.Wait()
+		pfCancel()
+		return "", nil, fmt.Errorf("port-forward failed for %s: %s", podName, strings.TrimSpace(stderr.String()))
+	case <-time.After(10 * time.Second):
+		pfCancel()
+		_ = cmd.Wait()
+		return "", nil, fmt.Errorf("port-forward timeout for %s: %s", podName, strings.TrimSpace(stderr.String()))
 	}
-
-	pfCancel()
-	_ = cmd.Wait()
-	return "", nil, fmt.Errorf("port-forward timeout for %s: %s", podName, stderr.String())
 }
